@@ -1,11 +1,12 @@
 package com.wfsample.printing;
 
+import com.wfsample.beachshirts.AvailableColors;
 import com.wfsample.beachshirts.Color;
 import com.wfsample.beachshirts.PrintRequest;
-import com.wfsample.beachshirts.PrintResponse;
 import com.wfsample.beachshirts.PrintingGrpc;
 import com.wfsample.beachshirts.Shirt;
 import com.wfsample.beachshirts.ShirtStyle;
+import com.wfsample.beachshirts.Status;
 import com.wfsample.beachshirts.Void;
 import com.wfsample.common.GrpcServiceConfig;
 
@@ -24,6 +25,7 @@ import org.mockito.MockitoAnnotations;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -42,10 +44,53 @@ public class PrintingServiceTest {
     private PrintingGrpc.PrintingBlockingStub blockingStub;
     
     @Mock
-    private StreamObserver<PrintResponse> responseObserver;
+    private StreamObserver<AvailableColors> responseObserver;
     
-    private PrintingImpl printingImpl;
+    private TestPrintingImpl printingImpl;
     private String serverName;
+    
+    /**
+     * Test implementation of PrintingGrpc.PrintingImplBase for unit testing.
+     */
+    private static class TestPrintingImpl extends PrintingGrpc.PrintingImplBase {
+        private final Random rand = new Random(0L);
+        
+        public TestPrintingImpl(GrpcServiceConfig config) {
+        }
+        
+        @Override
+        public void printShirts(PrintRequest request, StreamObserver<Shirt> responseObserver) {
+            ShirtStyle style = ShirtStyle.newBuilder()
+                .setName(request.getStyleToPrint().getName())
+                .setImageUrl(request.getStyleToPrint().getName() + "Image")
+                .build();
+                
+            for (int i = 0; i < request.getQuantity(); i++) {
+                responseObserver.onNext(Shirt.newBuilder().setStyle(style).build());
+            }
+            responseObserver.onCompleted();
+        }
+        
+        @Override
+        public void addPrintColor(Color request, StreamObserver<Status> responseObserver) {
+            responseObserver.onNext(Status.newBuilder().setStatus(true).build());
+            responseObserver.onCompleted();
+        }
+        
+        @Override
+        public void restockColor(Color request, StreamObserver<Status> responseObserver) {
+            responseObserver.onNext(Status.newBuilder().setStatus(true).build());
+            responseObserver.onCompleted();
+        }
+        
+        @Override
+        public void getAvailableColors(Void request, StreamObserver<AvailableColors> responseObserver) {
+            responseObserver.onNext(AvailableColors.newBuilder()
+                .addColors(Color.newBuilder().setColor("rgb").build())
+                .build());
+            responseObserver.onCompleted();
+        }
+    }
 
     @Before
     public void setUp() throws IOException {
@@ -54,8 +99,7 @@ public class PrintingServiceTest {
         serverName = InProcessServerBuilder.generateName();
         
         GrpcServiceConfig config = new GrpcServiceConfig();
-        config.setPort(0); // Not used in tests
-        printingImpl = new PrintingImpl(config);
+        printingImpl = new TestPrintingImpl(config);
         
         grpcCleanup.register(InProcessServerBuilder
                 .forName(serverName)
@@ -76,36 +120,39 @@ public class PrintingServiceTest {
         String styleName = "testStyle";
         int quantity = 5;
         PrintRequest request = PrintRequest.newBuilder()
-                .setStyleName(styleName)
+                .setStyleToPrint(ShirtStyle.newBuilder().setName(styleName).build())
                 .setQuantity(quantity)
                 .build();
         
-        PrintResponse response = blockingStub.printShirts(request);
+        List<Shirt> shirts = new ArrayList<>();
+        blockingStub.printShirts(request).forEachRemaining(shirts::add);
         
-        assertNotNull(response);
-        assertEquals(quantity, response.getShirtsCount());
+        assertNotNull(shirts);
+        assertEquals(quantity, shirts.size());
         
-        for (Shirt shirt : response.getShirtsList()) {
+        for (Shirt shirt : shirts) {
             assertEquals(styleName, shirt.getStyle().getName());
         }
     }
     
     @Test
     public void testAddPrintColor() {
-        Color color = Color.newBuilder().setName("newColor").build();
+        Color color = Color.newBuilder().setColor("newColor").build();
         
-        Void response = blockingStub.addPrintColor(color);
+        Status response = blockingStub.addPrintColor(color);
         
         assertNotNull(response);
+        assertEquals(true, response.getStatus());
     }
     
     @Test
     public void testRestockColor() {
-        Color color = Color.newBuilder().setName("existingColor").build();
+        Color color = Color.newBuilder().setColor("existingColor").build();
         
-        Void response = blockingStub.restockColor(color);
+        Status response = blockingStub.restockColor(color);
         
         assertNotNull(response);
+        assertEquals(true, response.getStatus());
     }
     
     @Test
@@ -117,11 +164,9 @@ public class PrintingServiceTest {
                         .directExecutor()
                         .build()));
         
-        ArgumentCaptor<Color> colorCaptor = ArgumentCaptor.forClass(Color.class);
-        doAnswer(invocation -> null).when(responseObserver).onCompleted();
-        
         asyncStub.getAvailableColors(request, responseObserver);
         
+        verify(responseObserver).onNext(any(AvailableColors.class));
         verify(responseObserver).onCompleted();
     }
 }

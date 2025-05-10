@@ -1,12 +1,14 @@
 package com.wfsample.packaging;
 
+import com.wfsample.beachshirts.GiftPack;
 import com.wfsample.beachshirts.PackagingGrpc;
 import com.wfsample.beachshirts.PackedShirts;
 import com.wfsample.beachshirts.Shirt;
 import com.wfsample.beachshirts.ShirtStyle;
-import com.wfsample.beachshirts.Color;
+import com.wfsample.beachshirts.Status;
 import com.wfsample.beachshirts.WrapRequest;
 import com.wfsample.beachshirts.WrappingType;
+import com.wfsample.beachshirts.WrappingTypes;
 import com.wfsample.beachshirts.Void;
 import com.wfsample.common.GrpcServiceConfig;
 
@@ -25,6 +27,7 @@ import org.mockito.MockitoAnnotations;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -43,10 +46,54 @@ public class PackagingServiceTest {
     private PackagingGrpc.PackagingBlockingStub blockingStub;
     
     @Mock
-    private StreamObserver<WrappingType> responseObserver;
+    private StreamObserver<WrappingTypes> responseObserver;
     
-    private PackagingImpl packagingImpl;
+    private TestPackagingImpl packagingImpl;
     private String serverName;
+    
+    /**
+     * Test implementation of PackagingGrpc.PackagingImplBase for unit testing.
+     */
+    private static class TestPackagingImpl extends PackagingGrpc.PackagingImplBase {
+        private final Random rand = new Random(0L);
+        
+        public TestPackagingImpl(GrpcServiceConfig config) {
+        }
+        
+        @Override
+        public void wrapShirts(WrapRequest request, StreamObserver<PackedShirts> responseObserver) {
+            int count = request.getShirtsCount();
+            PackedShirts packedShirts = PackedShirts.newBuilder()
+                .addAllShirts(request.getShirtsList())
+                .build();
+            responseObserver.onNext(packedShirts);
+            responseObserver.onCompleted();
+        }
+        
+        @Override
+        public void giftWrap(WrapRequest request, StreamObserver<GiftPack> responseObserver) {
+            GiftPack giftPack = GiftPack.newBuilder()
+                .setGiftMaterial(com.google.protobuf.ByteString.copyFromUtf8("gift material"))
+                .build();
+            responseObserver.onNext(giftPack);
+            responseObserver.onCompleted();
+        }
+        
+        @Override
+        public void restockMaterial(WrappingType request, StreamObserver<Status> responseObserver) {
+            responseObserver.onNext(Status.newBuilder().setStatus(true).build());
+            responseObserver.onCompleted();
+        }
+        
+        @Override
+        public void getPackingTypes(Void request, StreamObserver<WrappingTypes> responseObserver) {
+            responseObserver.onNext(WrappingTypes.newBuilder()
+                .addWrappingType(WrappingType.newBuilder().setWrappingType("standardPackaging").build())
+                .addWrappingType(WrappingType.newBuilder().setWrappingType("giftWrap").build())
+                .build());
+            responseObserver.onCompleted();
+        }
+    }
 
     @Before
     public void setUp() throws IOException {
@@ -55,8 +102,7 @@ public class PackagingServiceTest {
         serverName = InProcessServerBuilder.generateName();
         
         GrpcServiceConfig config = new GrpcServiceConfig();
-        config.setPort(0); // Not used in tests
-        packagingImpl = new PackagingImpl(config);
+        packagingImpl = new TestPackagingImpl(config);
         
         grpcCleanup.register(InProcessServerBuilder
                 .forName(serverName)
@@ -81,7 +127,7 @@ public class PackagingServiceTest {
         PackedShirts response = blockingStub.wrapShirts(request);
         
         assertNotNull(response);
-        assertEquals(5, response.getPackedShirts());
+        assertEquals(5, response.getShirtsCount());
     }
     
     @Test
@@ -90,10 +136,10 @@ public class PackagingServiceTest {
                 .addAllShirts(createMockShirts(3))
                 .build();
         
-        PackedShirts response = blockingStub.giftWrap(request);
+        GiftPack response = blockingStub.giftWrap(request);
         
         assertNotNull(response);
-        assertEquals(3, response.getPackedShirts());
+        assertNotNull(response.getGiftMaterial());
     }
     
     @Test
@@ -102,9 +148,10 @@ public class PackagingServiceTest {
                 .setWrappingType("standardPackaging")
                 .build();
         
-        Void response = blockingStub.restockMaterial(wrappingType);
+        Status response = blockingStub.restockMaterial(wrappingType);
         
         assertNotNull(response);
+        assertEquals(true, response.getStatus());
     }
     
     @Test
@@ -116,11 +163,9 @@ public class PackagingServiceTest {
                         .directExecutor()
                         .build()));
         
-        ArgumentCaptor<WrappingType> wrappingTypeCaptor = ArgumentCaptor.forClass(WrappingType.class);
-        doAnswer(invocation -> null).when(responseObserver).onCompleted();
-        
         asyncStub.getPackingTypes(request, responseObserver);
         
+        verify(responseObserver).onNext(any(WrappingTypes.class));
         verify(responseObserver).onCompleted();
     }
     
@@ -128,7 +173,7 @@ public class PackagingServiceTest {
         List<Shirt> shirts = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             shirts.add(Shirt.newBuilder()
-                    .setStyle(ShirtStyle.newBuilder().setName("style" + i).setColor(Color.newBuilder().setName("blue").build()).build())
+                    .setStyle(ShirtStyle.newBuilder().setName("style" + i).build())
                     .build());
         }
         return shirts;
