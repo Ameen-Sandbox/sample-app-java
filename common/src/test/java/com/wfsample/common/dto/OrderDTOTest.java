@@ -9,18 +9,24 @@ import static org.junit.Assert.*;
 public class OrderDTOTest {
 
     @Test
-    public void testOrderDTOConstructorAndGetters() {
+    public void testOrderDTOSettersAndGetters() {
+        OrderDTO orderDTO = new OrderDTO();
+        
         String styleName = "testStyle";
         int quantity = 5;
-        OrderDTO orderDTO = new OrderDTO(styleName, quantity);
+        orderDTO.setStyleName(styleName);
+        orderDTO.setQuantity(quantity);
         
         assertEquals(styleName, orderDTO.getStyleName());
         assertEquals(quantity, orderDTO.getQuantity());
     }
     
     @Test
-    public void testOrderDTOSetters() {
-        OrderDTO orderDTO = new OrderDTO("initialStyle", 1);
+    public void testOrderDTOUpdateValues() {
+        OrderDTO orderDTO = new OrderDTO();
+        
+        orderDTO.setStyleName("initialStyle");
+        orderDTO.setQuantity(1);
         
         String newStyleName = "updatedStyle";
         int newQuantity = 10;
@@ -32,7 +38,7 @@ public class OrderDTOTest {
     }
     
     @Test
-    public void testDefaultConstructor() {
+    public void testDefaultValues() {
         OrderDTO orderDTO = new OrderDTO();
         
         assertNull(orderDTO.getStyleName());
